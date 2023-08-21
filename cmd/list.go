@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/anjolaoluwaakindipe/testcli/internal/pkg/views"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +23,9 @@ var listCmd = &cobra.Command{
 			viewArg = views.DriveDirectoryArgs{Directory: args[0]}
 		}
 		view := views.InitDriveDirectoryView(viewArg)
-		view.View()
+		if _, err := tea.NewProgram(view).Run(); err != nil {
+			fmt.Println("Error running program:", err)
+			os.Exit(1)
+		}
 	},
 }

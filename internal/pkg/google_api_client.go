@@ -34,7 +34,7 @@ func (uc GoogleClient) saveToken(path string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
-func (uc GoogleClient) getTokenFromCache(file string) (*oauth2.Token, error) {
+func (uc GoogleClient) getTokenFromCache(file string, config *oauth2.Config) (*oauth2.Token, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -49,8 +49,16 @@ func (uc GoogleClient) getTokenFromCache(file string) (*oauth2.Token, error) {
 		return nil, err
 	}
 
-	return token, nil
+	newToken, refreshErr := config.TokenSource(context.Background(), token).Token()
+
+	if refreshErr != nil {
+		os.Remove(file)
+		return nil, refreshErr
+	}
+
+	return newToken, nil
 }
+
 func (uc GoogleClient) getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 	fmt.Printf("Go to the following link in your browser then type the "+
@@ -73,7 +81,7 @@ func (uc GoogleClient) GetClient(config *oauth2.Config) *http.Client {
 	// created automatically when the authorization flow completes for the first
 	// time.
 	tokFile := "token.json"
-	tok, err := uc.getTokenFromCache(tokFile)
+	tok, err := uc.getTokenFromCache(tokFile, config)
 	if err != nil {
 		tok = uc.getTokenFromWeb(config)
 		uc.saveToken(tokFile, tok)
@@ -95,7 +103,7 @@ func NewDriveClient() (*drive.Service, error) {
 	config, err := google.ConfigFromJSON(cred, drive.DriveScope)
 
 	if err != nil {
-		return nil, err 
+		return nil, err
 	}
 
 	client := GoogleClient{}.GetClient(config)
