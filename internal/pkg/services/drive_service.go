@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 
@@ -18,14 +19,22 @@ type GoogleDriveService struct {
 	googleDrive *drive.Service
 }
 
-func (gds *GoogleDriveService) GetDirectoryList(string) ([]FileInfo, error) {
+func (gds *GoogleDriveService) GetDirectoryList(folderId string) ([]FileInfo, error) {
+
+	folderId = strings.TrimSpace(folderId)
+
+	if folderId == "" {
+		folderId = "root"
+	}
+
+	query := fmt.Sprintf("'%s' in parents", folderId)
 
 	var fileInfos []FileInfo = make([]FileInfo, 0)
 	ctx := context.Background()
 
 	var fileList *drive.FileList
 
-	err := gds.googleDrive.Files.List().Corpora("allDrives").Q("'root' in parents").OrderBy("folder,name").SupportsAllDrives(true).Spaces("drive").Fields("files(id,name,size,mimeType)").IncludeItemsFromAllDrives(true).IncludePermissionsForView("published").PageSize(100).Pages(ctx, func(fl *drive.FileList) error {
+	err := gds.googleDrive.Files.List().Corpora("allDrives").Q(query).OrderBy("folder,name").SupportsAllDrives(true).Spaces("drive").Fields("files(id,name,size,mimeType)").IncludeItemsFromAllDrives(true).IncludePermissionsForView("published").PageSize(100).Pages(ctx, func(fl *drive.FileList) error {
 		fileList = fl
 		return nil
 	})
@@ -37,7 +46,7 @@ func (gds *GoogleDriveService) GetDirectoryList(string) ([]FileInfo, error) {
 	for _, file := range fileList.Files {
 		var fileName = file.Name
 		var documentType utils.DocumentType = utils.File
-		if strings.Contains(file.MimeType, "application/vnd.google-apps.folder"){
+		if strings.Contains(file.MimeType, "application/vnd.google-apps.folder") {
 			fileName += "/"
 			documentType = utils.Folder
 		} else if strings.Contains(file.MimeType, "application/vnd.google-apps.shortcut") {
@@ -59,9 +68,9 @@ func InitDriveService() DriveService {
 }
 
 type FileInfo struct {
-	Id       string
-	Name     string
-	Size     int
-	MimeType string
+	Id           string
+	Name         string
+	Size         int
+	MimeType     string
 	DocumentType utils.DocumentType
 }

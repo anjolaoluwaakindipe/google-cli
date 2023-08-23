@@ -22,18 +22,21 @@ var (
 )
 
 type Item struct {
-	title    string
-	size     int
-	mimeType string
+	title        string
+	size         int
+	mimeType     string
 	documentType utils.DocumentType
-	id       string
+	id           string
 }
 
-func (i Item) Title() string    { return i.title }
-func (i Item) Size() int        { return i.size }
-func (i Item) MimeType() string { return i.mimeType }
-func (i Item) IsFolder() utils.DocumentType   { return i.documentType }
-func (i Item) Id() string       { return i.id }
+func (i Item) Title() string                    { return i.title }
+func (i Item) Size() int                        { return i.size }
+func (i Item) MimeType() string                 { return i.mimeType }
+func (i Item) DocumentType() utils.DocumentType { return i.documentType }
+func (i Item) Id() string                       { return i.id }
+func (i Item) IsFolderOrShortcut() bool {
+	return i.DocumentType() == utils.Folder || i.DocumentType() == utils.Shortcut
+}
 
 func (i Item) FilterValue() string { return i.title }
 
@@ -58,7 +61,7 @@ func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	str := fmt.Sprintf("%d. %s", index+1, i.title) + sizeStr
 
 	fn := ItemStyle.Render
-	if i.documentType == utils.Folder  || i.documentType == utils.Shortcut{
+	if i.documentType == utils.Folder || i.documentType == utils.Shortcut {
 		fn = FolderStyle.Render
 	}
 	if index == m.Index() {

@@ -2,9 +2,11 @@ package views
 
 import (
 	"log"
+	"strings"
 
 	"github.com/anjolaoluwaakindipe/testcli/internal/pkg/components"
 	"github.com/anjolaoluwaakindipe/testcli/internal/pkg/services"
+	"github.com/anjolaoluwaakindipe/testcli/internal/pkg/utils"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,24 +18,19 @@ type DriveDirectoryArgs struct {
 
 type DriveDirectoryView struct {
 	driveDirectoryArgs DriveDirectoryArgs
-	folderItemList     []list.Item
+	keys               *listKeyBindings
 	list               list.Model
-	currentDirectory   string
+	currentDirectory   []string
+	folderQueue        []string
 }
 
 func (ddv *DriveDirectoryView) Init() tea.Cmd {
 	// Google drive folder structure
 	if ddv.driveDirectoryArgs.Directory == "" {
-		ddv.currentDirectory = "/"
+		ddv.currentDirectory = append(ddv.currentDirectory, "/")
 	}
-	ddv.folderItemList = make([]list.Item, 0)
-	files, err := services.InitDriveService().GetDirectoryList("")
-	if err != nil {
-		log.Fatal("Error in getting folder information: ", err)
-	}
-	for _, val := range files {
-		ddv.folderItemList = append(ddv.folderItemList, components.NewListItem(val.Name, val.Size, val.MimeType, val.Id, val.DocumentType))
-	}
+
+	folderItems := ddv.GetFolderItemList("")
 
 	// List configuration
 	var (
@@ -41,8 +38,8 @@ func (ddv *DriveDirectoryView) Init() tea.Cmd {
 		listHeight   = 25
 		keyBindings  = newListKeyBindings()
 	)
-	ddv.list = list.New(ddv.folderItemList, components.ItemDelegate{}, defaultWidth, listHeight)
-	ddv.list.Title = "Current Directory = " + ddv.currentDirectory
+	ddv.list = list.New(folderItems, components.ItemDelegate{}, defaultWidth, listHeight)
+	ddv.list.Title = "Current Directory = " + strings.Join(ddv.currentDirectory, "")
 	ddv.list.SetShowStatusBar(false)
 	ddv.list.Styles.Title = components.TitleStyle
 	ddv.list.Styles.PaginationStyle = components.PaginationStyle
@@ -51,6 +48,7 @@ func (ddv *DriveDirectoryView) Init() tea.Cmd {
 		return []key.Binding{
 			keyBindings.downloadFileOrFolder,
 			keyBindings.navigateToFolder,
+			keyBindings.goBackToPreviousFolder,
 		}
 	}
 
@@ -67,10 +65,41 @@ func (ddv *DriveDirectoryView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if ddv.list.FilterState() == list.Filtering {
 			break
 		}
-		switch msg.Type {
-		case tea.KeyEnter:
+		switch {
+		case key.Matches(msg, ddv.keys.navigateToFolder):
+			val, ok := ddv.list.SelectedItem().(components.Item)
+			if !ok || !val.IsFolderOrShortcut() {
+				break
+			}
+			ddv.currentDirectory = append(ddv.currentDirectory, val.Title())
+			ddv.UpdateListTitle()
+			ddv.folderQueue = append(ddv.folderQueue, val.Id())
+			return ddv, ddv.SendMessage(
+				utils.FolderNavigationMsg{FolderId: val.Id(), Name: val.Title()},
+			)
+		case key.Matches(msg, ddv.keys.goBackToPreviousFolder):
+			if len(ddv.folderQueue) == 0 {
+				break
+			}
+			ddv.folderQueue = ddv.folderQueue[:len(ddv.folderQueue)-1]
+			var folderItems []list.Item
+			if len(ddv.folderQueue) > 0 {
+				folderItems = ddv.GetFolderItemList(ddv.folderQueue[len(ddv.folderQueue)-1])
+			} else {
+				folderItems = ddv.GetFolderItemList("")
 
+			}
+			if len(ddv.currentDirectory) > 1 {
+				ddv.currentDirectory = ddv.currentDirectory[:len(ddv.currentDirectory)-1]
+				ddv.UpdateListTitle()
+			}
+			cmd := ddv.list.SetItems(folderItems)
+			return ddv, cmd
 		}
+	case utils.FolderNavigationMsg:
+		folderItems := ddv.GetFolderItemList(msg.FolderId)
+		cmd := ddv.list.SetItems(folderItems)
+		return ddv, cmd
 	}
 
 	var cmd tea.Cmd
@@ -78,6 +107,25 @@ func (ddv *DriveDirectoryView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 
 	return ddv, tea.Batch(cmds...)
+}
+
+func (ddv *DriveDirectoryView) SendMessage(msg tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		return msg
+	}
+}
+
+func (ddv *DriveDirectoryView) GetFolderItemList(folderId string) []list.Item {
+	folderItems := make([]list.Item, 0)
+	files, err := services.InitDriveService().GetDirectoryList(folderId)
+	if err != nil {
+		log.Fatal("Error in getting folder information: ", err)
+	}
+	for _, val := range files {
+		folderItems = append(folderItems, components.NewListItem(val.Name, val.Size, val.MimeType, val.Id, val.DocumentType))
+	}
+	
+	return folderItems
 }
 
 func (ddv *DriveDirectoryView) View() string {
@@ -89,14 +137,19 @@ func (ddv *DriveDirectoryView) View() string {
 	return ddv.list.View()
 }
 
+func (ddv *DriveDirectoryView) UpdateListTitle() {
+	ddv.list.Title = "Current Directory: " + strings.Join(ddv.currentDirectory, "")
+}
+
 func InitDriveDirectoryView(args DriveDirectoryArgs) *DriveDirectoryView {
-	return &DriveDirectoryView{driveDirectoryArgs: args}
+	return &DriveDirectoryView{driveDirectoryArgs: args, keys: newListKeyBindings()}
 }
 
 // Key bindings
 type listKeyBindings struct {
-	downloadFileOrFolder key.Binding
-	navigateToFolder     key.Binding
+	downloadFileOrFolder   key.Binding
+	navigateToFolder       key.Binding
+	goBackToPreviousFolder key.Binding
 }
 
 func newListKeyBindings() *listKeyBindings {
@@ -108,6 +161,10 @@ func newListKeyBindings() *listKeyBindings {
 		navigateToFolder: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "navigate to folder"),
+		),
+		goBackToPreviousFolder: key.NewBinding(
+			key.WithKeys("b"),
+			key.WithHelp("b", "back to previous folder"),
 		),
 	}
 }
